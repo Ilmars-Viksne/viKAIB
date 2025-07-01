@@ -1,0 +1,93 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import skimage.io
+import torch
+import micro_sam.util as util
+
+# We don't need to import SamPredictor anymore, because micro_sam's utility
+# function will return it to us directly.
+
+def segment_with_a_single_point(image_path: str, model_type: str = "vit_b"):
+    """
+    Loads an image and segments an object using a single point prompt at the center.
+    This version correctly uses the micro-sam utility to get a predictor directly.
+    """
+    # --- 1. Load Image ---
+    image = skimage.io.imread(image_path)
+    # The SAM model expects a 3-channel (RGB) image.
+    if image.ndim == 2:
+        image = skimage.color.gray2rgb(image)
+    
+    # It also expects the image to be in uint8 format.
+    if image.dtype != np.uint8:
+        print("Converting image to uint8.")
+        image = (image * 255).astype(np.uint8)
+
+    # --- 2. Initialize SAM Predictor (The Final, Correct Way) ---
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # This utility function downloads the model and returns a ready-to-use predictor.
+    print("Initializing predictor...")
+    predictor = util.get_sam_model(model_type=model_type, device=device)
+    print("Predictor initialized.")
+
+    # --- 3. Set Image for Predictor ---
+    print("Setting image in the predictor (computing embeddings)...")
+    predictor.set_image(image)
+    print("Embeddings computed.")
+
+    # --- 4. Create a Simple Point Prompt ---
+    height, width, _ = image.shape
+    center_y, center_x = height // 2, width // 2
+    input_points = np.array([[center_x, center_y]])
+    input_labels = np.array([1]) # 1 for a foreground point
+
+    print(f"Using a single positive point prompt at: {input_points[0]}")
+
+    # --- 5. Perform Segmentation ---
+    masks, scores, _ = predictor.predict(
+        point_coords=input_points,
+        point_labels=input_labels,
+        multimask_output=True,
+    )
+    final_mask = masks[np.argmax(scores)]
+
+    # --- 6. Visualize the Result (Using only Matplotlib) ---
+    plt.figure(figsize=(12, 6))
+
+    # Visualize the prompt point
+    plt.subplot(1, 2, 1)
+    plt.imshow(image)
+    pos_points = input_points[input_labels == 1]
+    plt.scatter(pos_points[:, 0], pos_points[:, 1], color='green', marker='*', s=250)
+    plt.title("Image with Point Prompt")
+    plt.axis('off')
+
+    # Visualize the mask
+    plt.subplot(1, 2, 2)
+    plt.imshow(image)
+    color = np.array([30/255, 144/255, 255/255, 0.6]) # Dodger blue with 60% alpha
+    mask_image = final_mask.reshape(final_mask.shape[0], final_mask.shape[1], 1) * color.reshape(1, 1, -1)
+    plt.imshow(mask_image)
+    plt.title("Segmentation Result")
+    plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+# --- Example Usage ---
+if __name__ == "__main__":
+    def create_dummy_image(path="dummy_object.tif"):
+        img_gray = np.zeros((256, 256), dtype=np.uint8)
+        center_x, center_y = 128, 128
+        radius = 50
+        y, x = np.ogrid[:256, :256]
+        dist = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+        img_gray[dist <= radius] = 200
+        img_gray = (img_gray + np.random.normal(0, 10, img_gray.shape)).astype(np.uint8)
+        skimage.io.imsave(path, img_gray, check_contrast=False)
+        return path
+
+    IMAGE_FILE = create_dummy_image()
+    segment_with_a_single_point(IMAGE_FILE)
