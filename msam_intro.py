@@ -4,9 +4,6 @@ import skimage.io
 import torch
 import micro_sam.util as util
 
-# We don't need to import SamPredictor anymore, because micro_sam's utility
-# function will return it to us directly.
-
 def segment_with_a_single_point(image_path: str, model_type: str = "vit_b"):
     """
     Loads an image and segments an object using a single point prompt at the center.
@@ -51,6 +48,9 @@ def segment_with_a_single_point(image_path: str, model_type: str = "vit_b"):
         point_labels=input_labels,
         multimask_output=True,
     )
+    # Print the number of pixels and score for each mask
+    for i, mask in enumerate(masks):
+        print(f"Mask {i+1}: Pixels = {np.sum(mask)}, Score = {scores[i]:.4f}")
     final_mask = masks[np.argmax(scores)]
 
     # --- 6. Visualize the Result (Using only Matplotlib) ---
