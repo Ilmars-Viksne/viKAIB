@@ -4,21 +4,37 @@ import skimage.io
 import torch
 import micro_sam.util as util
 
-def segment_with_a_single_point(image_path: str, model_type: str = "vit_b"):
+def segment_with_a_single_point(image, model_type: str = "vit_b"):
     """
     Loads an image and segments an object using a single point prompt at the center.
     This version correctly uses the micro-sam utility to get a predictor directly.
     """
     # --- 1. Load Image ---
-    image = skimage.io.imread(image_path)
+    if isinstance(image, str):
+        image = skimage.io.imread(image)
+    print(f"Max value before normalization: {np.max(image)}")
+    image = image / np.max(image)
+    print(f"Max value after normalization: {np.max(image)}")
+    plt.imshow(image, cmap='gray')
+    plt.title("Initial Image")
+    plt.show()
     # The SAM model expects a 3-channel (RGB) image.
     if image.ndim == 2:
         image = skimage.color.gray2rgb(image)
+        print(f"Max value before normalization: {np.max(image)}")
+        plt.imshow(image)
+        plt.title("Image after gray2rgb")
+        plt.show()
     
     # It also expects the image to be in uint8 format.
     if image.dtype != np.uint8:
         print("Converting image to uint8.")
-        image = (image * 255).astype(np.uint8)
+        image = (image / np.max(image)) * 255
+        image = image.astype(np.uint8)
+        print(f"Max value before normalization: {np.max(image)}")
+        plt.imshow(image, cmap='gray')
+        plt.title("Image after astype(uint8)")
+        plt.show()
 
     # --- 2. Initialize SAM Predictor (The Final, Correct Way) ---
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -37,7 +53,7 @@ def segment_with_a_single_point(image_path: str, model_type: str = "vit_b"):
     # --- 4. Create a Simple Point Prompt ---
     height, width, _ = image.shape
     center_y, center_x = height // 2, width // 2
-    input_points = np.array([[center_x, center_y]])
+    input_points = np.array([[center_x + 20, center_y]])
     input_labels = np.array([1]) # 1 for a foreground point
 
     print(f"Using a single positive point prompt at: {input_points[0]}")
@@ -89,5 +105,23 @@ if __name__ == "__main__":
         skimage.io.imsave(path, img_gray, check_contrast=False)
         return path
 
-    IMAGE_FILE = create_dummy_image()
-    segment_with_a_single_point(IMAGE_FILE)
+    image = None
+    try:
+        from skimage.data import cells3d
+        #raise Exception("No image!")
+        image = cells3d()[30, 0]
+        print("cells3d image loaded successfully")
+        plt.imshow(image)
+        plt.title("cells3d Image")
+        plt.show()
+    except Exception as e:
+        print(f"Error loading cells3d image: {e}")
+        IMAGE_FILE = create_dummy_image()
+        image = skimage.io.imread(IMAGE_FILE)
+        print("Dummy image created")
+        plt.imshow(image)
+        plt.title("Dummy Image")
+        plt.show()
+
+    if image is not None:
+        segment_with_a_single_point(image, "vit_b_lm")
