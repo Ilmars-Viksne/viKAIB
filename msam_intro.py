@@ -4,10 +4,10 @@ import skimage.io
 import torch
 import micro_sam.util as util
 
-def segment_with_a_single_point(image, model_type: str = "vit_b"):
+def segment_with_a_single_point(image, model_type: str = "vit_b", relative_x: int = 0, relative_y: int = 0):
     """
-    Loads an image and segments an object using a single point prompt at the center.
-    This version correctly uses the micro-sam utility to get a predictor directly.
+    Loads an image and segments an object using a single point prompt.
+    The origin of the coordinate system is in the middle of the image.
     """
     # --- 1. Load Image ---
     if isinstance(image, str):
@@ -25,7 +25,7 @@ def segment_with_a_single_point(image, model_type: str = "vit_b"):
         plt.imshow(image)
         plt.title("Image after gray2rgb")
         plt.show()
-    
+
     # It also expects the image to be in uint8 format.
     if image.dtype != np.uint8:
         print("Converting image to uint8.")
@@ -50,10 +50,15 @@ def segment_with_a_single_point(image, model_type: str = "vit_b"):
     predictor.set_image(image)
     print("Embeddings computed.")
 
-    # --- 4. Create a Simple Point Prompt ---
+    # --- 4. Create a Simple Point Prompt (Centered Origin) ---
     height, width, _ = image.shape
     center_y, center_x = height // 2, width // 2
-    input_points = np.array([[center_x + 20, center_y - 20]])
+
+    # Adjust the coordinates to the absolute image coordinates
+    absolute_x = center_x + relative_x
+    absolute_y = center_y - relative_y
+
+    input_points = np.array([[absolute_x, absolute_y]])
     input_labels = np.array([1]) # 1 for a foreground point
 
     print(f"Using a single positive point prompt at: {input_points[0]}")
@@ -129,4 +134,16 @@ if __name__ == "__main__":
         plt.show()
 
     if image is not None:
-        segment_with_a_single_point(image, "vit_b_lm")
+        while True:
+            try:
+                relative_x = input("Enter relative x coordinate (or 'q' to quit): ")
+                if relative_x.lower() == 'q':
+                    break
+                relative_y = input("Enter relative y coordinate (or 'q' to quit): ")
+                if relative_y.lower() == 'q':
+                    break
+                relative_x = int(relative_x)
+                relative_y = int(relative_y)
+                segment_with_a_single_point(image, "vit_b_lm", relative_x, relative_y)
+            except ValueError:
+                print("Invalid input. Please enter integers or 'q' to quit.")
