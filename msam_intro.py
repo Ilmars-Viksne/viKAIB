@@ -4,12 +4,10 @@ import skimage.io
 import torch
 import micro_sam.util as util
 
-def segment_with_a_single_point(image, model_type: str = "vit_b", relative_x: int = 0, relative_y: int = 0):
+def prepare_image(image):
     """
-    Loads an image and segments an object using a single point prompt.
-    The origin of the coordinate system is in the middle of the image.
+    Prepares the image for segmentation by normalizing, converting color, and type.
     """
-    # --- 1. Load Image ---
     if isinstance(image, str):
         image = skimage.io.imread(image)
     print(f"Max value before normalization: {np.max(image)}")
@@ -35,30 +33,45 @@ def segment_with_a_single_point(image, model_type: str = "vit_b", relative_x: in
         plt.imshow(image)
         plt.title("Image after astype(uint8)")
         plt.show()
+    return image
 
-    # --- 2. Initialize SAM Predictor (The Final, Correct Way) ---
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-
-    # This utility function downloads the model and returns a ready-to-use predictor.
-    print("Initializing predictor...")
-    predictor = util.get_sam_model(model_type=model_type, device=device)
-    print("Predictor initialized.")
-
-    # --- 3. Set Image for Predictor ---
-    print("Setting image in the predictor (computing embeddings)...")
-    predictor.set_image(image)
-    print("Embeddings computed.")
-
+def segment_with_point(image, predictor, relative_x: int = 0, relative_y: int = 0):
+    """
+    Segments the image using a single point prompt.
+    The origin of the coordinate system is in the middle of the image.
+    If a coordinate is outside the image, it's clamped to the boundary independently.
+    """
     # --- 4. Create a Simple Point Prompt (Centered Origin) ---
     height, width, _ = image.shape
     center_y, center_x = height // 2, width // 2
 
-    # Adjust the coordinates to the absolute image coordinates
+    # Adjust the coordinates to the absolute image coordinates.
+    # A positive relative_x moves right.
+    # A positive relative_y moves up.
     absolute_x = center_x + relative_x
-    absolute_y = center_y - relative_y
+    absolute_y = center_y - relative_y # Y-axis is inverted for intuitive control
 
-    input_points = np.array([[absolute_x, absolute_y]])
+    final_x = absolute_x
+    final_y = absolute_y
+
+    # Check and clamp the x coordinate independently
+    if final_x < 0:
+        final_x = 0
+        print(f"Warning: X coordinate ({absolute_x}) was outside the image boundary [0, {width - 1}] and was clamped to {final_x}.")
+    elif final_x >= width:
+        final_x = width - 1
+        print(f"Warning: X coordinate ({absolute_x}) was outside the image boundary [0, {width - 1}] and was clamped to {final_x}.")
+
+    # Check and clamp the y coordinate independently
+    if final_y < 0:
+        final_y = 0
+        print(f"Warning: Y coordinate ({absolute_y}) was outside the image boundary [0, {height - 1}] and was clamped to {final_y}.")
+    elif final_y >= height:
+        final_y = height - 1
+        print(f"Warning: Y coordinate ({absolute_y}) was outside the image boundary [0, {height - 1}] and was clamped to {final_y}.")
+
+
+    input_points = np.array([[final_x, final_y]])
     input_labels = np.array([1]) # 1 for a foreground point
 
     print(f"Using a single positive point prompt at: {input_points[0]}")
@@ -134,6 +147,21 @@ if __name__ == "__main__":
         plt.show()
 
     if image is not None:
+        # --- 2. Initialize SAM Predictor (The Final, Correct Way) ---
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {device}")
+
+        # This utility function downloads the model and returns a ready-to-use predictor.
+        print("Initializing predictor...")
+        predictor = util.get_sam_model(model_type="vit_b_lm", device=device)
+        print("Predictor initialized.")
+
+        image = prepare_image(image)
+        # --- 3. Set Image for Predictor ---
+        print("Setting image in the predictor (computing embeddings)...")
+        predictor.set_image(image)
+        print("Embeddings computed.")
+
         while True:
             try:
                 relative_x = input("Enter relative x coordinate (or 'q' to quit): ")
@@ -144,6 +172,6 @@ if __name__ == "__main__":
                     break
                 relative_x = int(relative_x)
                 relative_y = int(relative_y)
-                segment_with_a_single_point(image, "vit_b_lm", relative_x, relative_y)
+                segment_with_point(image, predictor, relative_x, relative_y)
             except ValueError:
                 print("Invalid input. Please enter integers or 'q' to quit.")
