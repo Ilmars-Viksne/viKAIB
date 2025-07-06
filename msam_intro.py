@@ -15,13 +15,13 @@ def segment_with_a_single_point(image, model_type: str = "vit_b"):
     print(f"Max value before normalization: {np.max(image)}")
     image = image / np.max(image)
     print(f"Max value after normalization: {np.max(image)}")
-    plt.imshow(image, cmap='gray')
-    plt.title("Initial Image")
+    plt.imshow(image)
+    plt.title("Normalized Image")
     plt.show()
     # The SAM model expects a 3-channel (RGB) image.
     if image.ndim == 2:
         image = skimage.color.gray2rgb(image)
-        print(f"Max value before normalization: {np.max(image)}")
+        print(f"Max value after gray2rgb: {np.max(image)}")
         plt.imshow(image)
         plt.title("Image after gray2rgb")
         plt.show()
@@ -32,7 +32,7 @@ def segment_with_a_single_point(image, model_type: str = "vit_b"):
         image = (image / np.max(image)) * 255
         image = image.astype(np.uint8)
         print(f"Max value before normalization: {np.max(image)}")
-        plt.imshow(image, cmap='gray')
+        plt.imshow(image)
         plt.title("Image after astype(uint8)")
         plt.show()
 
@@ -53,7 +53,7 @@ def segment_with_a_single_point(image, model_type: str = "vit_b"):
     # --- 4. Create a Simple Point Prompt ---
     height, width, _ = image.shape
     center_y, center_x = height // 2, width // 2
-    input_points = np.array([[center_x + 20, center_y]])
+    input_points = np.array([[center_x + 20, center_y - 20]])
     input_labels = np.array([1]) # 1 for a foreground point
 
     print(f"Using a single positive point prompt at: {input_points[0]}")
@@ -109,8 +109,13 @@ if __name__ == "__main__":
     try:
         from skimage.data import cells3d
         #raise Exception("No image!")
-        image = cells3d()[30, 0]
+        image = cells3d()[30, 1]
         print("cells3d image loaded successfully")
+        print(f"Image shape: {image.shape}")
+        print(f"Image dtype: {image.dtype}")
+        print(f"Number of color channels: {image.ndim} ")
+        print(f"Image min value: {np.min(image)}")
+        print(f"Image max value: {np.max(image)}")
         plt.imshow(image)
         plt.title("cells3d Image")
         plt.show()
