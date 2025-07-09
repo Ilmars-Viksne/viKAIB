@@ -3,12 +3,15 @@ import matplotlib.pyplot as plt
 import skimage.io
 import skimage.color
 import skimage.util
+import cv2
 import torch
 import micro_sam.util as util
+import os
 
 class ImageHandler:
     """
     Handles loading, preparing, and displaying the image.
+    This class does NOT interact with the console.
     """
     def __init__(self):
         self.raw_image = None
@@ -17,28 +20,41 @@ class ImageHandler:
         self.width = 0
         self.title = ""
 
-    def load(self, use_dummy=False):
-        """
-        Tries to load the cells3d image. If it fails or if use_dummy is True,
-        creates and loads a dummy image.
-        """
-        if not use_dummy:
-            try:
-                from skimage.data import cells3d
-                self.raw_image = cells3d()[30, 1]
-                self.title = "Successfully Loaded cells3d Image"
-                print(self.title)
-            except Exception as e:
-                print(f"Could not load cells3d image: {e}. Creating a dummy image.")
-                self._create_dummy_image()
-        else:
-            self._create_dummy_image()
-        
-        self._prepare()
-        return self.prepared_image
+    def load_from_local_file(self, path: str) -> bool:
+        """Loads an image from a local file path. Returns True on success."""
+        try:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"The file was not found at '{path}'.")
+            self.raw_image = skimage.io.imread(path)
+            self.title = f"Loaded: {os.path.basename(path)}"
+            print(f"Successfully loaded image from {path}")
+            return True
+        except Exception as e:
+            print(f"An error occurred while loading the file: {e}")
+            self.raw_image = None
+            return False
+
+    def load_cells3d(self) -> bool:
+        """Tries to load the cells3d image. Returns True on success."""
+        try:
+            from skimage.data import cells3d
+            self.raw_image = cells3d()[30, 1]
+            self.title = "Successfully Loaded cells3d Image"
+            print(self.title)
+            return True
+        except Exception as e:
+            print(f"Could not load cells3d image: {e}. It might need to be downloaded.")
+            self.raw_image = None
+            return False
+
+    def load_dummy_image(self) -> bool:
+        """Generates a simple dummy image. Returns True on success."""
+        self._create_dummy_image()
+        print("Successfully generated a dummy image.")
+        return True
 
     def _create_dummy_image(self):
-        """Generates a simple dummy image."""
+        """Generates a simple dummy image and sets it as the raw_image."""
         img_gray = np.zeros((256, 256), dtype=np.uint8)
         center_x, center_y = 128, 128
         radius = 50
@@ -50,9 +66,7 @@ class ImageHandler:
         self.title = "Created Dummy Image"
 
     def _prepare(self):
-        """
-        Prepares the image for the SAM model (uint8, 3-channel RGB).
-        """
+        """Prepares the image for the SAM model (uint8, 3-channel RGB)."""
         image = self.raw_image
         if image.dtype != np.uint8:
             print("Warning: Image is not in uint8 format. Converting now.")
@@ -61,8 +75,37 @@ class ImageHandler:
         if image.ndim == 2:
             image = skimage.color.gray2rgb(image)
         
+        print(f"Image shape after gray2rgb: {image.shape}")
+        print(f"Image dtype after gray2rgb: {image.dtype}")
+
+        # Resize the image so that the longest side is 1024
+        target_size = 1024
+        long_side = max(image.shape[:2])
+        scale = target_size / long_side
+        new_size = (int(image.shape[1] * scale), int(image.shape[0] * scale))
+        image = cv2.resize(image, new_size)
+
+        print(f"Image shape after resizing: {image.shape}")
+        print(f"Image dtype after resizing: {image.dtype}")
+
+        # Convert to RGB if it's not already
+        if image.ndim == 2:
+            image = skimage.color.gray2rgb(image)
+        elif image.shape[2] == 4:
+            image = image[:, :, :3]  # Remove alpha channel
+
+        print(f"Image shape after removing alpha channel: {image.shape}")
+        print(f"Image dtype after removing alpha channel: {image.dtype}")
+        
         self.prepared_image = image
         self.height, self.width, _ = self.prepared_image.shape
+
+    def prepare_and_get_image(self) -> np.ndarray:
+        """Prepares the loaded raw image and returns it."""
+        if self.raw_image is None:
+            raise RuntimeError("Cannot prepare image: No raw image has been loaded.")
+        self._prepare()
+        return self.prepared_image
 
     def show(self):
         """Displays the currently loaded raw image."""
@@ -98,6 +141,7 @@ class SegmentationModel:
         if self.predictor is None:
             raise RuntimeError("Model is not initialized. Call 'initialize()' first.")
         print("Setting image in the predictor (computing embeddings)...")
+        print(f"Image shape before setting: {image.shape}")
         self.predictor.set_image(image)
         self.is_image_set = True
         print("Embeddings computed and predictor is ready.")
@@ -122,21 +166,48 @@ class SegmentationModel:
 class InteractiveSegmenter:
     """
     Orchestrates the interactive segmentation application.
+    This class handles all user console interaction.
     """
     def __init__(self, model_type="vit_b_lm"):
         self.image_handler = ImageHandler()
         self.model = SegmentationModel(model_type=model_type)
 
+    def _get_image_from_user(self) -> np.ndarray:
+        """
+        Handles the user interaction for choosing and loading an image.
+        Returns the prepared image upon successful loading.
+        """
+        while True:
+            print("\nPlease choose an image source:")
+            print("1. Load a local image file")
+            print("2. Load the 'cells3d' sample image")
+            print("3. Generate a dummy image")
+            choice = input("Enter your choice (1, 2, or 3): ")
+
+            success = False
+            if choice == '1':
+                path = input("Enter the full path to your image file: ")
+                success = self.image_handler.load_from_local_file(path)
+            elif choice == '2':
+                success = self.image_handler.load_cells3d()
+            elif choice == '3':
+                success = self.image_handler.load_dummy_image()
+            else:
+                print("Invalid choice. Please enter 1, 2, or 3.")
+
+            if success:
+                return self.image_handler.prepare_and_get_image()
+            else:
+                print("Image loading failed. Please try again.")
+
     def _visualize_segmentation(self, image, input_points, final_mask):
         """Displays the image with prompt and the resulting mask."""
         plt.figure(figsize=(12, 6))
-        # Subplot 1: Image with Point Prompt
         plt.subplot(1, 2, 1)
         plt.imshow(image)
         plt.scatter(input_points[:, 0], input_points[:, 1], color='green', marker='*', s=250)
         plt.title("Image with Point Prompt")
         plt.axis('off')
-        # Subplot 2: Segmentation Result
         plt.subplot(1, 2, 2)
         plt.imshow(image)
         color = np.array([30/255, 144/255, 255/255, 0.6])
@@ -149,8 +220,8 @@ class InteractiveSegmenter:
 
     def run(self):
         """Runs the main application loop."""
-        # 1. Load and prepare image
-        prepared_image = self.image_handler.load()
+        # 1. Load and prepare image by interacting with the user
+        prepared_image = self._get_image_from_user()
         self.image_handler.show()
 
         # 2. Initialize model and set image
@@ -169,17 +240,13 @@ class InteractiveSegmenter:
 
                 relative_x, relative_y = int(x_input), int(y_input)
                 
-                # Calculate and clamp coordinates
                 abs_x = np.clip(center_x + relative_x, 0, self.image_handler.width - 1)
                 abs_y = np.clip(center_y - relative_y, 0, self.image_handler.height - 1)
                 
                 input_points = np.array([[abs_x, abs_y]])
-                print(f"Using a single positive point prompt at: {input_points[0]} for {[int(abs_x - center_x), int(center_y - abs_y)]}")
+                print(f"Using a single positive point prompt at: {input_points[0]} for relative coords: [{relative_x}, {relative_y}]")
 
-                # Get segmentation mask
                 final_mask = self.model.predict_from_point(input_points)
-
-                # Visualize result
                 self._visualize_segmentation(prepared_image, input_points, final_mask)
 
             except ValueError:
