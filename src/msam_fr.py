@@ -147,14 +147,22 @@ class SegmentationModel:
             self.predictor = util.get_sam_model(model_type=self.model_type, device=self.device)
             print("Predictor initialized.")
 
-    def set_image(self, image: np.ndarray):
-        """Sets the image in the predictor to compute embeddings."""
+    def set_image(self, image: np.ndarray, silent: bool = False):
+        """
+        Sets the image in the predictor to compute embeddings.
+        If silent is True, it will not print status messages.
+        """
         if self.predictor is None:
             raise RuntimeError("Model is not initialized. Call 'initialize()' first.")
-        print("Setting image in the predictor (computing embeddings)...")
+        
+        if not silent:
+            print("Setting image in the predictor (computing embeddings)...")
+            
         self.predictor.set_image(image)
         self.is_image_set = True
-        print("Embeddings computed and predictor is ready.")
+        
+        if not silent:
+            print("Embeddings computed and predictor is ready.")
 
     def predict_from_point(self, point_coords: np.ndarray):
         """Performs segmentation from a single point prompt."""
@@ -167,8 +175,6 @@ class SegmentationModel:
         )
         best_mask_idx = np.argmax(scores)
         final_mask = masks[best_mask_idx]
-        # Suppress score printout during tracking to avoid clutter
-        # print(f"Best mask found: Pixels = {np.sum(final_mask)}, Score = {scores[best_mask_idx]:.4f}")
         return final_mask
 
 
@@ -288,50 +294,45 @@ class InteractiveSegmenter:
 
         os.makedirs(output_folder, exist_ok=True)
         
-        # --- Step 1: Get the initial mask from the first frame ---
         prepared_first_frame = self.image_handler.prepare_and_get_image()
         self.image_handler.show()
         
         self.model.initialize()
-        self.model.set_image(prepared_first_frame)
+        # Set the first image with verbose output
+        self.model.set_image(prepared_first_frame, silent=False)
         
         input_points = self._get_point_prompt()
         tracked_mask = self.model.predict_from_point(input_points)
         print(f"Initial mask found with {np.sum(tracked_mask)} pixels.")
         self._visualize_segmentation(prepared_first_frame, input_points, tracked_mask, " (First Frame)")
 
-        # Save the result for the first frame
         save_path = os.path.join(output_folder, os.path.basename(self.image_handler.image_paths[0]))
         self._save_tracking_result(prepared_first_frame, tracked_mask, save_path)
         
-        # --- Step 2: Loop through the rest of the frames ---
-        print(f"Starting tracking for the remaining {len(self.image_handler.image_paths) - 1} frames...")
-        
-        for i in tqdm(range(1, len(self.image_handler.image_paths)), desc="Tracking Frames"):
-            # If the previous mask was empty, we can't continue.
-            if np.sum(tracked_mask) == 0:
-                print(f"\nWarning: Object lost at frame {i-1}. Stopping track.")
-                break
+        remaining_frames = len(self.image_handler.image_paths) - 1
+        if remaining_frames > 0:
+            print(f"Starting tracking for the remaining {remaining_frames} frames...")
+            
+            for i in tqdm(range(1, len(self.image_handler.image_paths)), desc="Tracking Frames"):
+                if np.sum(tracked_mask) == 0:
+                    print(f"\nWarning: Object lost at frame {i-1}. Stopping track.")
+                    break
 
-            # --- Step 2a: Calculate the center of the previous mask ---
-            # The 'y' coordinates are in [0], 'x' in [1]
-            y_coords, x_coords = np.where(tracked_mask)
-            center_y = int(y_coords.mean())
-            center_x = int(x_coords.mean())
-            new_prompt = np.array([[center_x, center_y]])
-            
-            # --- Step 2b: Load and prepare the new frame ---
-            frame_path = self.image_handler.image_paths[i]
-            raw_next_frame = skimage.io.imread(frame_path)
-            prepared_next_frame = self.image_handler.prepare_image(raw_next_frame)
-            
-            # --- Step 2c: Set the new frame and predict with the new prompt ---
-            self.model.set_image(prepared_next_frame)
-            tracked_mask = self.model.predict_from_point(new_prompt)
-            
-            # --- Step 2d: Save the result ---
-            save_path = os.path.join(output_folder, os.path.basename(frame_path))
-            self._save_tracking_result(prepared_next_frame, tracked_mask, save_path)
+                y_coords, x_coords = np.where(tracked_mask)
+                center_y = int(y_coords.mean())
+                center_x = int(x_coords.mean())
+                new_prompt = np.array([[center_x, center_y]])
+                
+                frame_path = self.image_handler.image_paths[i]
+                raw_next_frame = skimage.io.imread(frame_path)
+                prepared_next_frame = self.image_handler.prepare_image(raw_next_frame)
+                
+                # Set subsequent images silently to keep the progress bar clean
+                self.model.set_image(prepared_next_frame, silent=True)
+                tracked_mask = self.model.predict_from_point(new_prompt)
+                
+                save_path = os.path.join(output_folder, os.path.basename(frame_path))
+                self._save_tracking_result(prepared_next_frame, tracked_mask, save_path)
             
         print(f"\nTracking complete. Results saved in '{output_folder}'.")
 
@@ -363,7 +364,7 @@ class InteractiveSegmenter:
         
         self.image_handler.show()
         self.model.initialize()
-        self.model.set_image(prepared_image)
+        self.model.set_image(prepared_image, silent=False)
 
         while True:
             try:
@@ -381,6 +382,7 @@ class InteractiveSegmenter:
                 print(f"Using prompt at: {input_points[0]} (relative: [{relative_x}, {relative_y}])")
 
                 final_mask = self.model.predict_from_point(input_points)
+                print(f"Mask generated with {np.sum(final_mask)} pixels.")
                 self._visualize_segmentation(prepared_image, input_points, final_mask)
 
             except ValueError as e:
