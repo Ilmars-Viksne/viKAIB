@@ -165,7 +165,10 @@ class SegmentationModel:
             print("Embeddings computed and predictor is ready.")
 
     def predict_from_point(self, point_coords: np.ndarray):
-        """Performs segmentation from a single point prompt."""
+        """
+        Performs segmentation from a single point prompt.
+        Returns the mask, the score, and the pixel count.
+        """
         if not self.is_image_set:
             raise RuntimeError("An image must be set before prediction. Call 'set_image()' first.")
         
@@ -175,7 +178,10 @@ class SegmentationModel:
         )
         best_mask_idx = np.argmax(scores)
         final_mask = masks[best_mask_idx]
-        return final_mask
+        best_score = scores[best_mask_idx]
+        pixel_count = np.sum(final_mask)
+        
+        return final_mask, best_score, pixel_count
 
 
 class InteractiveSegmenter:
@@ -233,9 +239,11 @@ class InteractiveSegmenter:
         except Exception as e:
             print(f"An unexpected error occurred during video splitting: {e}")
 
-    def _visualize_segmentation(self, image, input_points, final_mask, title_suffix=""):
-        """Displays the image with prompt and the resulting mask."""
+    def _visualize_segmentation(self, image, input_points, final_mask, score, pixel_count, title_suffix=""):
+        """Displays the image with prompt and the resulting mask, including info text."""
         plt.figure(figsize=(12, 6))
+        
+        # Subplot 1: Image with Point Prompt
         plt.subplot(1, 2, 1)
         plt.imshow(image)
         if input_points is not None:
@@ -243,24 +251,33 @@ class InteractiveSegmenter:
         plt.title(f"Image with Point Prompt{title_suffix}")
         plt.axis('off')
         
+        # Subplot 2: Segmentation Result with Info
         plt.subplot(1, 2, 2)
         plt.imshow(image)
         color = np.array([30/255, 144/255, 255/255, 0.6])
         mask_overlay = final_mask[..., np.newaxis] * color.reshape(1, 1, -1)
         plt.imshow(mask_overlay)
+        
+        info_text = f"Score: {score:.4f}\nPixels: {pixel_count}"
+        plt.text(5, 25, info_text, color='white', fontsize=12, bbox=dict(facecolor='black', alpha=0.5))
+        
         plt.title(f"Segmentation Result{title_suffix}")
         plt.axis('off')
         
         plt.tight_layout()
         plt.show()
     
-    def _save_tracking_result(self, image, mask, output_path):
-        """Saves a single frame of the tracking result to a file."""
+    def _save_tracking_result(self, image, mask, score, pixel_count, output_path):
+        """Saves a single frame of the tracking result with info text to a file."""
         fig, ax = plt.subplots(figsize=(image.shape[1]/100, image.shape[0]/100), dpi=100)
         ax.imshow(image)
         color = np.array([30/255, 144/255, 255/255, 0.6])
         mask_overlay = mask[..., np.newaxis] * color.reshape(1, 1, -1)
         ax.imshow(mask_overlay)
+        
+        info_text = f"Score: {score:.4f}\nPixels: {pixel_count}"
+        ax.text(5, 25, info_text, color='white', fontsize=12, bbox=dict(facecolor='black', alpha=0.5))
+        
         ax.axis('off')
         fig.tight_layout(pad=0)
         plt.savefig(output_path)
@@ -298,16 +315,15 @@ class InteractiveSegmenter:
         self.image_handler.show()
         
         self.model.initialize()
-        # Set the first image with verbose output
         self.model.set_image(prepared_first_frame, silent=False)
         
         input_points = self._get_point_prompt()
-        tracked_mask = self.model.predict_from_point(input_points)
-        print(f"Initial mask found with {np.sum(tracked_mask)} pixels.")
-        self._visualize_segmentation(prepared_first_frame, input_points, tracked_mask, " (First Frame)")
+        tracked_mask, score, pixel_count = self.model.predict_from_point(input_points)
+        print(f"Initial mask found with {pixel_count} pixels. Score: {score:.4f}")
+        self._visualize_segmentation(prepared_first_frame, input_points, tracked_mask, score, pixel_count, " (First Frame)")
 
         save_path = os.path.join(output_folder, os.path.basename(self.image_handler.image_paths[0]))
-        self._save_tracking_result(prepared_first_frame, tracked_mask, save_path)
+        self._save_tracking_result(prepared_first_frame, tracked_mask, score, pixel_count, save_path)
         
         remaining_frames = len(self.image_handler.image_paths) - 1
         if remaining_frames > 0:
@@ -327,12 +343,11 @@ class InteractiveSegmenter:
                 raw_next_frame = skimage.io.imread(frame_path)
                 prepared_next_frame = self.image_handler.prepare_image(raw_next_frame)
                 
-                # Set subsequent images silently to keep the progress bar clean
                 self.model.set_image(prepared_next_frame, silent=True)
-                tracked_mask = self.model.predict_from_point(new_prompt)
+                tracked_mask, score, pixel_count = self.model.predict_from_point(new_prompt)
                 
                 save_path = os.path.join(output_folder, os.path.basename(frame_path))
-                self._save_tracking_result(prepared_next_frame, tracked_mask, save_path)
+                self._save_tracking_result(prepared_next_frame, tracked_mask, score, pixel_count, save_path)
             
         print(f"\nTracking complete. Results saved in '{output_folder}'.")
 
@@ -381,9 +396,9 @@ class InteractiveSegmenter:
                 input_points = np.array([[abs_x, abs_y]])
                 print(f"Using prompt at: {input_points[0]} (relative: [{relative_x}, {relative_y}])")
 
-                final_mask = self.model.predict_from_point(input_points)
-                print(f"Mask generated with {np.sum(final_mask)} pixels.")
-                self._visualize_segmentation(prepared_image, input_points, final_mask)
+                final_mask, score, pixel_count = self.model.predict_from_point(input_points)
+                print(f"Mask generated with {pixel_count} pixels. Score: {score:.4f}")
+                self._visualize_segmentation(prepared_image, input_points, final_mask, score, pixel_count)
 
             except ValueError as e:
                 print(f"Invalid input: {e}. Please enter two integers or 'q'.")
