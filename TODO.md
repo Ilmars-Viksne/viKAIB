@@ -1,6 +1,7 @@
 #  Update to use the Pole of Inaccessibility of a given mask
 
 '''python
+
                 y_coords, x_coords = np.where(tracked_mask)
                 center_y = int(y_coords.mean())
                 center_x = int(x_coords.mean())
