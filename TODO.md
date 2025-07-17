@@ -11,7 +11,7 @@
                 raw_next_frame = skimage.io.imread(frame_path)
 ```
 
-Of course. Here is a Python demo script that demonstrates how to generate a `new_prompt` using the Pole of Inaccessibility of a given mask, and contrasts it with the simpler centroid calculation.
+Here is a Python demo script that demonstrates how to generate a `new_prompt` using the Pole of Inaccessibility of a given mask, and contrasts it with the simpler centroid calculation.
 
 ### Rationale
 
