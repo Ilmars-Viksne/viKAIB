@@ -1,6 +1,6 @@
 #  Update to use the Pole of Inaccessibility of a given mask
 
-'''python
+```python
 
                 y_coords, x_coords = np.where(tracked_mask)
                 center_y = int(y_coords.mean())
@@ -9,9 +9,9 @@
                 
                 frame_path = self.image_handler.image_paths[i]
                 raw_next_frame = skimage.io.imread(frame_path)
-'''
+```
 
-Here is a Python demo script that demonstrates how to generate a `new_prompt` using the Pole of Inaccessibility of a given mask, and contrasts it with the simpler centroid calculation.
+Of course. Here is a Python demo script that demonstrates how to generate a `new_prompt` using the Pole of Inaccessibility of a given mask, and contrasts it with the simpler centroid calculation.
 
 ### Rationale
 
@@ -35,7 +35,7 @@ This script will perform the following steps:
 
 Here is the script:
 
-'''python
+```python
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -131,4 +131,4 @@ plt.show()
 print("Prompt from Centroid (x, y):", centroid_prompt)
 print("Prompt from Pole of Inaccessibility (x, y):", new_prompt.astype(int))
 
-'''
+```
